@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 )
 
 // User struct
@@ -49,9 +51,28 @@ var blogsMock = []Blog{
 	},
 }
 
-// ValidateJWT validates JWT token
+// ValidateJWT validates a JWT token
 func ValidateJWT(t string) (interface{}, error) {
-	return nil, nil
+	if t == "" {
+		return nil, errors.New("Authorization token must be present")
+	}
+	var err error
+	token, err := jwt.Parse(t, func(token *jwt.Token) (interface{}, error) {
+		if err != nil {
+			return nil, errors.Wrap(err, "Failed to parse the token")
+		}
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("There was an error")
+		}
+		return jwtSecret, nil
+	})
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		var decodedToken interface{}
+		mapstructure.Decode(claims, &decodedToken)
+		return decodedToken, nil
+	}
+
+	return nil, errors.New("Invalid authorization token")
 }
 
 // CreateTokenEndpoint is an endpoint to create a new token
