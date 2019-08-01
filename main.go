@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/dgrijalva/jwt-go"
 )
 
 // User struct
@@ -51,8 +54,21 @@ func ValidateJWT(t string) (interface{}, error) {
 	return nil, nil
 }
 
-// CreateTokenEndpoint creates a token endpoint
-func CreateTokenEndpoint(response http.ResponseWriter, request *http.Request) {}
+// CreateTokenEndpoint is an endpoint to create a new token
+func CreateTokenEndpoint(response http.ResponseWriter, request *http.Request) {
+	var user User
+	_ = json.NewDecoder(request.Body).Decode(&user)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"username": user.Username,
+		"password": user.Password,
+	})
+	tokenString, error := token.SignedString(jwtSecret)
+	if error != nil {
+		fmt.Println(error)
+	}
+	response.Header().Set("content-type", "application/json")
+	response.Write([]byte(`{ "token": "` + tokenString + `" }`))
+}
 
 func main() {
 	fmt.Println("Starting the application at :12345...")
