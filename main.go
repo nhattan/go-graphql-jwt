@@ -1,13 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/graphql-go/graphql"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
+)
+
+type token string
+
+const (
+	t token = "token"
 )
 
 // User struct
@@ -25,6 +33,49 @@ type Blog struct {
 	Author    string `json:"author"`
 	Pageviews int32  `json:"pageviews"`
 }
+
+var accountType *graphql.Object = graphql.NewObject(graphql.ObjectConfig{
+	Name: "Account",
+	Fields: graphql.Fields{
+		"id": &graphql.Field{
+			Type: graphql.String,
+		},
+		"username": &graphql.Field{
+			Type: graphql.String,
+		},
+		"password": &graphql.Field{
+			Type: graphql.String,
+		},
+	},
+})
+
+var blogType *graphql.Object = graphql.NewObject(graphql.ObjectConfig{
+	Name: "Blog",
+	Fields: graphql.Fields{
+		"id": &graphql.Field{
+			Type: graphql.String,
+		},
+		"title": &graphql.Field{
+			Type: graphql.String,
+		},
+		"content": &graphql.Field{
+			Type: graphql.String,
+		},
+		"author": &graphql.Field{
+			Type: graphql.String,
+		},
+		"pageviews": &graphql.Field{
+			Type: graphql.Int,
+			Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+				_, err := ValidateJWT(params.Context.Value("token").(string))
+				if err != nil {
+					return nil, err
+				}
+				return params.Source.(Blog).Pageviews, nil
+			},
+		},
+	},
+})
 
 var jwtSecret = []byte("thepolyglotdeveloper")
 
@@ -92,7 +143,46 @@ func CreateTokenEndpoint(response http.ResponseWriter, request *http.Request) {
 }
 
 func main() {
+	rootQuery := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Query",
+		Fields: graphql.Fields{
+			"account": &graphql.Field{
+				Type: accountType,
+				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+					account, err := ValidateJWT(params.Context.Value("token").(string))
+					if err != nil {
+						return nil, err
+					}
+					for _, accountMock := range accountsMock {
+						if accountMock.Username == account.(User).Username {
+							return accountMock, nil
+						}
+					}
+					return &User{}, nil
+				},
+			},
+			"blogs": &graphql.Field{
+				Type: graphql.NewList(blogType),
+				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+					return blogsMock, nil
+				},
+			},
+		},
+	})
+
+	schema, _ := graphql.NewSchema(graphql.SchemaConfig{
+		Query: rootQuery,
+	})
+
 	fmt.Println("Starting the application at :12345...")
 	http.HandleFunc("/login", CreateTokenEndpoint)
+	http.HandleFunc("/graphql", func(response http.ResponseWriter, request *http.Request) {
+		result := graphql.Do(graphql.Params{
+			Schema:        schema,
+			RequestString: request.URL.Query().Get("query"),
+			Context:       context.WithValue(context.Background(), t, request.URL.Query().Get("token")),
+		})
+		json.NewEncoder(response).Encode(result)
+	})
 	http.ListenAndServe(":12345", nil)
 }
